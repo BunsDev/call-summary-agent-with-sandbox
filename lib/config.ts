@@ -159,10 +159,6 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
     }
   }
 
-  if (!process.env.AI_GATEWAY_API_KEY) {
-    errors.push('AI_GATEWAY_API_KEY is required');
-  }
-
   return {
     valid: errors.length === 0,
     errors,
