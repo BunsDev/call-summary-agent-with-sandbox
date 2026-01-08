@@ -81,11 +81,6 @@ async function streamWorkflow(request: Request | null, isCurl: boolean): Promise
       data = (await request!.json()) as GongWebhook;
     }
 
-    logger.info('Webhook received', {
-      callId: data.callData.metaData.id,
-      callTitle: data.callData.metaData.title,
-    });
-
     // Start workflow and get the readable stream
     const run = await start(workflowGongSummary, [data]);
     const logsReadable = run.getReadable<StreamLogEntry>({ namespace: 'logs' });
@@ -95,31 +90,40 @@ async function streamWorkflow(request: Request | null, isCurl: boolean): Promise
       async start(controller) {
         const reader = logsReadable.getReader();
 
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-              controller.enqueue(encoder.encode(`data: "[DONE]"\n\n`));
-              controller.close();
-              break;
-            }
+        // Read logs in parallel with waiting for workflow completion
+        const readLogs = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
 
-            // Format output based on client type
-            let output: string;
-            if (isCurl && value) {
-              const time = new Date(value.time).toLocaleTimeString('en-US', { hour12: false });
-              const logData = value.data ? ` ${JSON.stringify(value.data)}` : '';
-              output = `[${time}] [${value.context}] ${value.message}${logData}`;
-            } else {
-              output = JSON.stringify(value);
+              // Format output based on client type
+              let output: string;
+              if (isCurl && value) {
+                const time = new Date(value.time).toLocaleTimeString('en-US', { hour12: false });
+                const logData = value.data ? ` ${JSON.stringify(value.data)}` : '';
+                output = `[${time}] [${value.context}] ${value.message}${logData}`;
+              } else {
+                output = JSON.stringify(value);
+              }
+              controller.enqueue(encoder.encode(`data: ${output}\n\n`));
             }
-            controller.enqueue(encoder.encode(`data: ${output}\n\n`));
+          } finally {
+            reader.releaseLock();
           }
+        };
+
+        try {
+          // Wait for both: log streaming and workflow completion
+          await Promise.all([
+            readLogs(),
+            run.returnValue, // Wait for workflow to complete
+          ]);
         } catch (err) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : 'Stream error' })}\n\n`));
-          controller.close();
         } finally {
-          reader.releaseLock();
+          controller.enqueue(encoder.encode(`data: "[DONE]"\n\n`));
+          controller.close();
         }
       },
     });
