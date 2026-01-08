@@ -126,4 +126,3 @@ export async function stepSendSlackSummary(
     await emitLog('warn', 'slack', 'Failed to send to Slack', { error: result.error });
   }
 }
-

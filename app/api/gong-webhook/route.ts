@@ -158,4 +158,3 @@ export async function GET() {
     configErrors: configValidation.errors,
   });
 }
-
