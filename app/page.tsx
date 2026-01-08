@@ -69,9 +69,11 @@ export default function HomePage() {
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+
         const lines = buffer.split('\n\n');
         buffer = lines.pop() || '';
 
@@ -90,6 +92,8 @@ export default function HomePage() {
             }
           }
         }
+
+        if (done) break;
       }
     } catch (err) {
       console.error('Stream error:', err);

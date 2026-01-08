@@ -8,7 +8,7 @@ import { workflowGongSummary } from '@/workflows/gong-summary';
 import { createLogger } from '@/lib/logger';
 import { validateConfig, config } from '@/lib/config';
 import { getMockWebhookData } from '@/lib/mock-data';
-import { logStream } from '@/lib/log-stream';
+import type { StreamLogEntry } from '@/workflows/gong-summary/steps';
 
 const logger = createLogger('gong-webhook');
 
@@ -25,11 +25,11 @@ export async function POST(request: Request) {
     );
   }
 
-  // For streaming, we need to set up subscriber before logging
+  // For streaming, use workflow's built-in streaming
   if (wantsStream) {
     const userAgent = request.headers.get('User-Agent') || '';
     const isCurl = userAgent.toLowerCase().includes('curl');
-    return streamWorkflow(config.demo.enabled ? null : request, isCurl);
+    return await streamWorkflow(config.demo.enabled ? null : request, isCurl);
   }
 
   try {
@@ -67,99 +67,81 @@ export async function POST(request: Request) {
   }
 }
 
-function streamWorkflow(request: Request | null, isCurl: boolean): Response {
+async function streamWorkflow(request: Request | null, isCurl: boolean): Promise<Response> {
   const encoder = new TextEncoder();
-  let unsubscribe: (() => void) | null = null;
-  let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  let closed = false;
 
-  const stream = new ReadableStream({
-    async start(controller) {
-      const send = (obj: unknown) => {
-        if (!closed) {
-          let output: string;
-          if (isCurl && obj && typeof obj === 'object' && 'message' in obj) {
-            const log = obj as { time: string; context: string; level: string; message: string; data?: unknown };
-            const time = new Date(log.time).toLocaleTimeString('en-US', { hour12: false });
-            const data = log.data ? ` ${JSON.stringify(log.data)}` : '';
-            output = `[${time}] [${log.context}] ${log.message}${data}`;
-          } else {
-            output = JSON.stringify(obj);
+  try {
+    // Prepare webhook data
+    let data: GongWebhook;
+    if (config.demo.enabled) {
+      const mockData = getMockWebhookData();
+      data = { ...mockData, isTest: true, isPrivate: false };
+      logger.info('Demo mode: using mock webhook data');
+    } else {
+      data = (await request!.json()) as GongWebhook;
+    }
+
+    // Start workflow and get the readable stream
+    const run = await start(workflowGongSummary, [data]);
+    const logsReadable = run.getReadable<StreamLogEntry>({ namespace: 'logs' });
+
+    // Transform the workflow stream to SSE format
+    const sseStream = new ReadableStream({
+      async start(controller) {
+        const reader = logsReadable.getReader();
+
+        // Read logs in parallel with waiting for workflow completion
+        const readLogs = async () => {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              // Format output based on client type
+              let output: string;
+              if (isCurl && value) {
+                const time = new Date(value.time).toLocaleTimeString('en-US', { hour12: false });
+                const logData = value.data ? ` ${JSON.stringify(value.data)}` : '';
+                output = `[${time}] [${value.context}] ${value.message}${logData}`;
+              } else {
+                output = JSON.stringify(value);
+              }
+              controller.enqueue(encoder.encode(`data: ${output}\n\n`));
+            }
+          } finally {
+            reader.releaseLock();
           }
-          controller.enqueue(encoder.encode(`data: ${output}\n\n`));
+        };
+
+        try {
+          // Wait for both: log streaming and workflow completion
+          await Promise.all([
+            readLogs(),
+            run.returnValue, // Wait for workflow to complete
+          ]);
+        } catch (err) {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: err instanceof Error ? err.message : 'Stream error' })}\n\n`));
+        } finally {
+          controller.enqueue(encoder.encode(`data: "[DONE]"\n\n`));
+          controller.close();
         }
-      };
+      },
+    });
 
-      const closeStream = () => {
-        if (closed) return;
-        closed = true;
-        unsubscribe?.();
-        if (timeoutId) clearTimeout(timeoutId);
-        controller.enqueue(encoder.encode(`data: "[DONE]"\n\n`));
-        controller.close();
-      };
-
-      // Set up subscriber FIRST, before any logging
-      unsubscribe = logStream.subscribe((log) => {
-        send(log);
-        // Close on workflow completion, agent completion, or errors
-        if (
-          log.message.includes('Workflow completed') ||
-          log.message.includes('Agent completed') ||
-          log.message.includes('failed after max retries') ||
-          log.message.includes('Agent error')
-        ) {
-          closeStream();
-        }
-      });
-
-      // Timeout after 2 minutes
-      timeoutId = setTimeout(() => {
-        logger.info('Stream timeout reached');
-        closeStream();
-      }, 120000);
-
-      try {
-        // Now parse data and log (subscriber is already listening)
-        let data: GongWebhook;
-        if (config.demo.enabled) {
-          const mockData = getMockWebhookData();
-          data = { ...mockData, isTest: true, isPrivate: false };
-          logger.info('Demo mode: using mock webhook data');
-        } else {
-          data = (await request!.json()) as GongWebhook;
-        }
-
-        logger.info('Webhook received', {
-          callId: data.callData.metaData.id,
-          callTitle: data.callData.metaData.title,
-          callUrl: data.callData.metaData.url,
-          scheduled: data.callData.metaData.scheduled,
-          duration: data.callData.metaData.duration,
-          isTest: data.isTest,
-        });
-
-        await start(workflowGongSummary, [data]);
-        logger.info('Workflow triggered', { callId: data.callData.metaData.id });
-      } catch (err) {
-        send({ error: err instanceof Error ? err.message : 'Unknown error' });
-        closeStream();
-      }
-    },
-    cancel() {
-      closed = true;
-      unsubscribe?.();
-      if (timeoutId) clearTimeout(timeoutId);
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-    },
-  });
+    return new Response(sseStream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      },
+    });
+  } catch (err) {
+    logger.error('Failed to start workflow stream', err);
+    return Response.json(
+      { error: 'Failed to start workflow', message: err instanceof Error ? err.message : 'Unknown error' },
+      { status: 500 }
+    );
+  }
 }
 
 /**
@@ -176,4 +158,3 @@ export async function GET() {
     configErrors: configValidation.errors,
   });
 }
-

@@ -7,12 +7,9 @@ import { z } from 'zod';
 import { Sandbox } from '@vercel/sandbox';
 import ms from 'ms';
 import { config, agentOutputSchema } from './config';
-import { createAgentTools } from './tools';
+import { createAgentTools, LogEmitter } from './tools';
 import { generateFilesForSandbox, generateFileTree } from './sandbox-context';
-import { createLogger } from './logger';
 import type { GongWebhookData } from './types';
-
-const logger = createLogger('agent');
 
 /**
  * Input options for the agent
@@ -20,6 +17,7 @@ const logger = createLogger('agent');
 const callOptionsSchema = z.object({
   webhookData: z.custom<GongWebhookData>(),
   sfdcAccountId: z.string().optional(),
+  emit: z.custom<LogEmitter>().optional(),
 });
 
 /**
@@ -36,20 +34,19 @@ export const gongSummaryAgent = new ToolLoopAgent({
   callOptionsSchema,
 
   prepareCall: async ({ options, ...settings }) => {
-    logger.debug('prepareCall started');
+    const { emit } = options;
 
-    logger.debug('Creating sandbox...');
+    if (emit) await emit('info', 'agent', 'Creating sandbox');
     const sandbox = await Sandbox.create({
       timeout: ms(config.sandbox.timeout),
     });
-    logger.debug('Sandbox created');
 
-    logger.debug('Generating files for sandbox...');
+    if (emit) await emit('info', 'agent', 'Generating files');
     const files = await generateFilesForSandbox({
       webhookData: options.webhookData,
       sfdcAccountId: options.sfdcAccountId,
     });
-    logger.debug('Files generated', { count: Object.keys(files).length });
+    if (emit) await emit('info', 'agent', `Files ready`, { count: Object.keys(files).length });
 
     // Generate file tree for the prompt
     const fileTree = generateFileTree(files);
@@ -87,11 +84,8 @@ ${fileTree}
 - Current date: ${new Date().toISOString()}
 - Company: ${config.companyName}`;
 
-    logger.debug('Creating agent tools...');
-    const tools = await createAgentTools(sandbox, files);
-    logger.debug('Agent tools created');
+    const tools = await createAgentTools(sandbox, files, emit);
 
-    logger.debug('prepareCall complete');
     return {
       ...settings,
       instructions,
@@ -108,15 +102,12 @@ ${fileTree}
  */
 export async function runGongAgent(
   webhookData: GongWebhookData,
-  sfdcAccountId?: string
+  sfdcAccountId?: string,
+  emit?: LogEmitter
 ): Promise<z.infer<typeof agentOutputSchema>> {
-  logger.debug('runGongAgent called', {
-    model: config.model,
-    callId: webhookData.callData.metaData.id,
-  });
+  if (emit) await emit('info', 'agent', 'Starting AI agent');
 
   try {
-    logger.debug('Starting AI agent...');
     const result = await gongSummaryAgent.generate({
       prompt: `Analyze this call transcript and provide a comprehensive summary.
 
@@ -126,13 +117,13 @@ Use the bash tool to explore the transcript files before generating your summary
       options: {
         webhookData,
         sfdcAccountId,
+        emit,
       },
     });
 
-    logger.debug('Agent completed successfully');
     return result.output as z.infer<typeof agentOutputSchema>;
   } catch (error) {
-    logger.error('Agent error', error);
+    if (emit) await emit('error', 'agent', `Agent failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     throw error;
   }
 }
