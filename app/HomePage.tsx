@@ -72,8 +72,7 @@ export default function HomePage({ isDemo: isDemoMode }: { isDemo: boolean }) {
               const log = JSON.parse(data) as LogEntry;
               setLogs((prev) => [...prev, log]);
               if (
-                (log.context === "workflow" &&
-                  log.message === "Workflow complete") ||
+                log.message === "Workflow completed" ||
                 log.context === "result"
               ) {
                 setIsRunning(false);
