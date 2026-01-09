@@ -4,6 +4,8 @@ An AI-powered agent that automatically summarizes sales calls using Vercel's San
 
 > **Template Note**: This template uses **Gong** as a starting example for call transcript integration. You can adapt it to work with other call recording platforms (Zoom, Google Meet, etc.) by modifying the webhook handler and transcript fetching logic.
 
+> **Extensible**: This template can be extended to integrate with Salesforce (or another CRM of your choice), Slack (to post call summaries), and other services. The demo files in `/demo-files/context/` demonstrate how CRM data and other context can be provided to the agent.
+
 ## Features
 
 - **Structured Summaries** - AI-generated summaries with tasks, objections, and key insights
@@ -11,8 +13,6 @@ An AI-powered agent that automatically summarizes sales calls using Vercel's San
 - **[bash-tool](https://www.npmjs.com/package/bash-tool)** - Generic bash tool for AI agents, compatible with AI SDK
 - **Demo Mode** - Works out of the box with mock data (no Gong credentials needed)
 - **Objection Tracking** - Identifies and scores how well objections were handled
-- **Slack Integration** - Optional notifications to your team channel
-- **Salesforce Integration** - Optional CRM context enrichment
 - **Durable Workflows** - Built with Vercel Workflow DevKit for reliability
 
 ---
@@ -119,8 +119,6 @@ flowchart TD
 
     subgraph external [External Services]
         Gong[Gong API]
-        SF[Salesforce - Optional]
-        Slack[Slack - Optional]
     end
 
     Webhook --> WF
@@ -129,8 +127,6 @@ flowchart TD
     Agent --> Sandbox
     Agent --> tools
     Steps --> Gong
-    Steps --> SF
-    Steps --> Slack
 ```
 
 ## Environment Variables
@@ -140,12 +136,6 @@ flowchart TD
 | `GONG_ACCESS_KEY` | No | - | Gong API access key (demo mode if missing) |
 | `GONG_SECRET_KEY` | No | - | Gong API secret key (demo mode if missing) |
 | `COMPANY_NAME` | No | "Your Company" | Company name in prompts |
-| `SLACK_BOT_TOKEN` | No | - | Slack bot token for notifications |
-| `SLACK_CHANNEL_ID` | No | - | Slack channel ID for summaries |
-| `SF_CLIENT_ID` | No | - | Salesforce Connected App client ID |
-| `SF_USERNAME` | No | - | Salesforce username |
-| `SF_LOGIN_URL` | No | `https://login.salesforce.com` | Salesforce login URL |
-| `SF_PRIVATE_KEY_PEM` | No | - | Salesforce private key (PEM format) |
 
 ## Demo Mode Details
 
@@ -159,10 +149,6 @@ demo-files/
     ├── gong-calls/previous/       # Historical calls
     │   ├── demo-call-000-discovery-call.md
     │   └── demo-call-intro-initial-call.md
-    ├── salesforce/                # CRM context
-    │   ├── account.md
-    │   ├── opportunity.md
-    │   └── contacts.md
     ├── research/                  # Background info
     │   ├── company-research.md
     │   └── competitive-intel.md
@@ -192,29 +178,6 @@ Override the default system prompt:
 AGENT_SYSTEM_PROMPT="You are a sales call analyst..."
 ```
 
-### Slack Integration
-
-Enable Slack notifications by setting:
-
-```bash
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_CHANNEL_ID=C0123456789
-```
-
-The agent posts:
-1. Main summary message
-2. Thread reply with details
-3. Objections breakdown
-4. Action items list
-
-**To add multiple channels**: Modify `lib/slack.ts` to route based on call properties.
-
-### Salesforce Integration
-
-Enable CRM context by setting Salesforce credentials. The agent will enrich summaries with account data.
-
-See [CRM Customization](#crm-customization) for details on customizing fields or adding other CRMs.
-
 ## How It Works
 
 1. **Webhook Received**: Gong sends call data when a call completes (or mock data in demo mode)
@@ -223,7 +186,6 @@ See [CRM Customization](#crm-customization) for details on customizing fields or
 4. **Sandbox Created**: A secure sandbox is created with call files
 5. **Agent Runs**: The AI agent explores transcripts using [bash-tool](https://www.npmjs.com/package/bash-tool)
 6. **Summary Generated**: Structured output with tasks, objections, insights
-7. **Notifications Sent**: Optional Slack messages posted
 
 ### Workflow Steps
 
@@ -277,9 +239,7 @@ The agent generates structured output:
     handledAnswer: string,
     handledScore: number,    // 0-100
     handledBy: string
-  }],
-  slackSummary: string,      // TL;DR for Slack
-  slackDetails: string       // Detailed thread reply
+  }]
 }
 ```
 
@@ -288,60 +248,6 @@ The agent generates structured output:
 ### Custom Playbooks
 
 Add playbook detection by configuring `config.playbooks` in `lib/config.ts`.
-
-### CRM Customization
-
-The agent supports optional CRM integration to enrich call context. By default, Salesforce is supported, but you can customize fields or add other CRMs.
-
-#### Adding a Different CRM (HubSpot, Pipedrive, etc.)
-
-1. **Create a new CRM module** (e.g., `lib/hubspot.ts`):
-
-```typescript
-export function isHubSpotEnabled(): boolean {
-  return !!process.env.HUBSPOT_API_KEY;
-}
-
-export async function getAccountData(companyId: string): Promise<{
-  accountData: Record<string, unknown> | null;
-}> {
-  // Implement your CRM's API calls
-}
-```
-
-2. **Add config** in `lib/config.ts`:
-
-```typescript
-hubspot: {
-  enabled: !!process.env.HUBSPOT_API_KEY,
-  apiKey: process.env.HUBSPOT_API_KEY || '',
-},
-```
-
-3. **Update sandbox context** in `lib/sandbox-context.ts`:
-
-```typescript
-import { getAccountData, isHubSpotEnabled } from './hubspot';
-
-// In generateFilesForSandbox():
-if (isHubSpotEnabled() && options.hubspotCompanyId) {
-  const { accountData } = await getAccountData(options.hubspotCompanyId);
-  // Write to sandbox...
-}
-```
-
-4. **Extract CRM IDs from Gong context** in `workflows/gong-summary/index.ts`:
-
-```typescript
-// Gong may include CRM context from integrations
-const hubspotCompanyId = data.callData.context
-  ?.find((c) => c.system === 'HubSpot')
-  ?.objects?.find((o) => o.objectType === 'Company')?.objectId;
-```
-
-#### Disabling CRM Integration
-
-Simply don't set the `SF_*` environment variables. The integration checks `isSalesforceEnabled()` before making any API calls.
 
 ## Development
 
@@ -373,8 +279,6 @@ sales-call-summary-agent/
 │   ├── config.ts            # Centralized configuration
 │   ├── gong-client.ts       # Gong API helpers
 │   ├── mock-data.ts         # Demo mode loader
-│   ├── salesforce.ts        # Optional Salesforce integration
-│   ├── slack.ts             # Optional Slack integration
 │   ├── sandbox-context.ts   # File generation for sandbox
 │   ├── tools.ts             # Agent tools (bash-tool)
 │   ├── types.ts             # TypeScript types
@@ -417,7 +321,7 @@ Health check endpoint.
 ```
 
 ## Output
-The function returns output in the format agentOutputSchema (detailed in agent.ts). You can save this output in Slack.
+The function returns output in the format agentOutputSchema (detailed in agent.ts).
 
 ## Contributing
 

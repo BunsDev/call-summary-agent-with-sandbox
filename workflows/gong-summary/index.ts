@@ -9,7 +9,6 @@
  * 1. Receive Gong webhook
  * 2. Fetch transcript from Gong API
  * 3. Run AI agent to generate summary
- * 4. (Optional) Send to Slack
  */
 
 import type { GongWebhook } from '@/lib/types';
@@ -17,7 +16,6 @@ import { createLogger } from '@/lib/logger';
 import {
   stepGetGongTranscript,
   stepRunAgent,
-  stepSendSlackSummary,
   stepEmitResult,
 } from './steps';
 
@@ -51,9 +49,6 @@ export async function workflowGongSummary(data: GongWebhook) {
 
   // Step 3: Emit the result to stream
   await stepEmitResult(summary);
-
-  // Step 4: Send to Slack (optional)
-  await stepSendSlackSummary(summary, data.callData.metaData.url);
 
   logger.info('Workflow completed', { summaryLength: summary.length });
 

@@ -26,21 +26,6 @@ export const config = {
     secretKey: process.env.GONG_SECRET_KEY || '',
   },
 
-  slack: {
-    enabled: !!process.env.SLACK_BOT_TOKEN,
-    botToken: process.env.SLACK_BOT_TOKEN || '',
-    channelId: process.env.SLACK_CHANNEL_ID || '',
-    signingSecret: process.env.SLACK_SIGNING_SECRET || '',
-  },
-
-  salesforce: {
-    enabled: !!process.env.SF_CLIENT_ID,
-    clientId: process.env.SF_CLIENT_ID || '',
-    username: process.env.SF_USERNAME || '',
-    loginUrl: process.env.SF_LOGIN_URL || 'https://login.salesforce.com',
-    privateKeyPem: process.env.SF_PRIVATE_KEY_PEM || '',
-  },
-
   sandbox: {
     timeout: '10m' as const,
   },

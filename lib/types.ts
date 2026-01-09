@@ -56,7 +56,7 @@ export interface MetaData {
   calendarEventId?: string | null;
 }
 
-/** CRM context entry (e.g., Salesforce) */
+/** CRM context entry from Gong */
 export interface CallContextEntry {
   system: string;
   objects?: CallContextObject[];

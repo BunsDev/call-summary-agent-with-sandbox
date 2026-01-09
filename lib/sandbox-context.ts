@@ -3,16 +3,10 @@
  *
  * Generates files for the Vercel Sandbox environment,
  * giving the agent access to call transcripts and related data.
- *
- * To add Salesforce CRM data:
- * 1. Configure SF_* env vars in .env.local
- * 2. Pass sfdcAccountId to generateFilesForSandbox
- * 3. Uncomment the Salesforce section below
  */
 
 import type { GongWebhookData } from './types';
 import { convertTranscriptToMarkdown, fetchGongTranscript } from './gong-client';
-// import { getAccountData, isSalesforceEnabled } from './salesforce';
 import { isDemoMode } from './config';
 import { getMockTranscript, getMockWebhookData, getDemoContextFiles } from './mock-data';
 
@@ -21,7 +15,6 @@ import { getMockTranscript, getMockWebhookData, getDemoContextFiles } from './mo
  *
  * Creates a file structure with:
  * - gong-calls/ - Call transcript markdown files
- * - salesforce/ - CRM data (if Salesforce is enabled, see header comment)
  */
 export async function generateFilesForSandbox(options: {
   webhookData: GongWebhookData;

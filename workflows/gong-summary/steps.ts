@@ -9,7 +9,6 @@ import { isDemoMode } from '@/lib/config';
 import { fetchGongTranscript, convertTranscriptToMarkdown } from '@/lib/gong-client';
 import { getMockTranscript, getMockWebhookData } from '@/lib/mock-data';
 import { runGongAgent, type StreamLogEntry } from '@/lib/agent';
-import { sendSlackSummary, isSlackEnabled } from '@/lib/slack';
 import { getWritable } from 'workflow';
 
 /** Helper to write a single log entry */
@@ -71,34 +70,6 @@ export async function stepRunAgent(options: {
   const logStream = getWritable<StreamLogEntry>({ namespace: 'logs' });
   return runGongAgent(options.webhookData, logStream);
 }
-
-/**
- * Step: Send summary to Slack (optional)
- */
-export async function stepSendSlackSummary(summary: string, recordingUrl?: string): Promise<void> {
-  'use step';
-
-  const writer = getWritable<StreamLogEntry>({ namespace: 'logs' }).getWriter();
-
-  try {
-    if (!isSlackEnabled()) {
-      await writeLog(writer, 'info', 'slack', 'Slack not configured, skipping');
-      return;
-    }
-
-    await writeLog(writer, 'info', 'slack', 'Sending to Slack');
-    const result = await sendSlackSummary(summary, recordingUrl);
-
-    if (result.success) {
-      await writeLog(writer, 'info', 'slack', 'Sent to Slack');
-    } else {
-      await writeLog(writer, 'warn', 'slack', 'Failed to send to Slack', { error: result.error });
-    }
-  } finally {
-    writer.releaseLock();
-  }
-}
-
 
 /**
  * Step: Emit the final summary result

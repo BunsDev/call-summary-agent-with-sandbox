@@ -106,7 +106,6 @@ export default function HomePage() {
       case 'sandbox': return { bg: '#172554', text: '#93c5fd' };
       case 'transcript': return { bg: '#3f3f46', text: '#a1a1aa' };
       case 'result': return { bg: '#365314', text: '#bef264' };
-      case 'slack': return { bg: '#4a1d6e', text: '#e879f9' };
       default: return { bg: '#27272a', text: '#a1a1aa' };
     }
   };
