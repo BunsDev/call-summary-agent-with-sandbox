@@ -21,7 +21,6 @@ export async function createAgentTools(
   const { tools } = await createBashTool({
     sandbox,
     files,
-    destination: '/vercel/sandbox',
     onBeforeBashCall: ({ command }) => {
       log('info', 'bash', `$ ${command}`);
       return undefined;
