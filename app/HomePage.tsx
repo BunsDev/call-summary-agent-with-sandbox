@@ -29,7 +29,7 @@ export default function HomePage({ isDemo: isDemoMode }: { isDemo: boolean }) {
     setLogs([]);
     setIsRunning(true);
 
-    const timeout = setTimeout(() => setIsRunning(false), 120000);
+    const timeout = setTimeout(() => setIsRunning(false), 300000);
 
     try {
       const body = isDemoMode
